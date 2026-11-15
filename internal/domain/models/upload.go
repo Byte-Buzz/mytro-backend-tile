@@ -7,18 +7,21 @@ import (
 )
 
 type UploadURLData struct {
-	TileID      uuid.UUID
-	Filename    string
-	MaxSize     uint32
-	ContentType string
-	Visibility  TileVisibility
-	IsVideo     bool
+	TileID               uuid.UUID
+	ContentType          string
+	AcceptedContentTypes []string
+	Tasks                []ProcessingTask
+	ExternalTasks        []string
+	MaxSize              uint64
+	MaxDuration          *uint32
+	TTL                  *uint32
 }
 
 type UploadURL struct {
-	FileID    string
-	UploadURL string
-	ExpiresAt time.Time
+	FileID     string
+	UploadURL  string
+	FormFields map[string]string
+	ExpiresAt  time.Time
 }
 
 type CreateUpload struct {
@@ -27,8 +30,9 @@ type CreateUpload struct {
 }
 
 type CreatedUpload struct {
-	TileID    uuid.UUID
-	FileID    string
-	UploadURL string
-	ExpiresAt time.Time
+	TileID     uuid.UUID
+	FileID     string
+	UploadURL  string
+	FormFields map[string]string
+	ExpiresAt  time.Time
 }
