@@ -1,0 +1,13 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: mytro-backend-tile/internal/infrastructure/grpc/pb
+plugins:
+  - local: protoc-gen-go
+    out: internal/infrastructure/grpc/pb
+    opt: paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: internal/infrastructure/grpc/pb
+    opt: paths=source_relative
