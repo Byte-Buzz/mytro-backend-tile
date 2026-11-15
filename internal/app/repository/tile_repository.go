@@ -16,6 +16,7 @@ type TileRepository interface {
 	GetAllNewByOwner(ctx context.Context, id uuid.UUID) ([]models.Tile, error)
 
 	Create(ctx context.Context, tile *models.Tile) error
+	DeleteDraft(ctx context.Context, id uuid.UUID) error
 }
 
 type tileRepository struct {
@@ -102,6 +103,10 @@ func (r *tileRepository) GetAllNewByOwner(ctx context.Context, ownerID uuid.UUID
 
 func (r *tileRepository) Create(ctx context.Context, tile *models.Tile) error {
 	return r.db.WithContext(ctx).Create(tileToDTO(tile)).Error
+}
+
+func (r *tileRepository) DeleteDraft(ctx context.Context, id uuid.UUID) error {
+	return r.db.WithContext(ctx).Where("id = ? AND status = 'draft'", id).Delete(&dto.TileDTO{}).Error
 }
 
 func tileToDomain(dto *dto.TileDTO) (*models.Tile, error) {

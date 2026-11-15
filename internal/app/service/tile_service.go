@@ -8,6 +8,7 @@ import (
 	"mytro-backend-tile/internal/infrastructure/config"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -86,6 +87,13 @@ func (s TileService) CreateUpload(ctx context.Context, upload models.CreateUploa
 		TTL:                  &s.upload.URLTTL,
 	})
 	if err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		delErr := s.tileRepository.DeleteDraft(cleanupCtx, id)
+		if delErr != nil {
+			return nil, errors.Join(err, delErr)
+		}
+
 		return nil, err
 	}
 
