@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"mime"
 	"mytro-backend-tile/internal/app/repository"
 	"mytro-backend-tile/internal/domain/models"
 	"mytro-backend-tile/internal/infrastructure/config"
@@ -51,14 +52,19 @@ func NewTileService(tileRepository repository.TileRepository, fileRepository rep
 func (s TileService) CreateUpload(ctx context.Context, upload models.CreateUpload) (*models.CreatedUpload, error) {
 	id := uuid.New()
 
-	_, exists := AvailableContentTypes[upload.FileType]
+	mediaType, _, err := mime.ParseMediaType(upload.FileType)
+	if err != nil {
+		return nil, ErrUnsupportedContentType
+	}
+
+	_, exists := AvailableContentTypes[mediaType]
 	if !exists {
 		return nil, ErrUnsupportedContentType
 	}
 
-	isVideo := slices.Contains(videoContentTypes, upload.FileType)
+	isVideo := slices.Contains(videoContentTypes, mediaType)
 
-	err := s.tileRepository.Create(ctx, &models.Tile{
+	err = s.tileRepository.Create(ctx, &models.Tile{
 		ID:         id,
 		OwnerID:    upload.OwnerID,
 		Type:       getFileType(isVideo),
@@ -80,7 +86,7 @@ func (s TileService) CreateUpload(ctx context.Context, upload models.CreateUploa
 		TileID:               id,
 		MaxSize:              maxSize,
 		MaxDuration:          maxDuration,
-		ContentType:          upload.FileType,
+		ContentType:          mediaType,
 		AcceptedContentTypes: acceptedTypes,
 		Tasks:                getTasks(isVideo),
 		ExternalTasks:        []string{"mytro.nsfw", "mytro.embedding"},
