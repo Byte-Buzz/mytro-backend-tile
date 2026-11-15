@@ -7,7 +7,7 @@ import (
 	"mytro-backend-tile/internal/app/repository"
 	"mytro-backend-tile/internal/app/service"
 	"mytro-backend-tile/internal/infrastructure/config"
-	"mytro-backend-tile/internal/infrastructure/grpc/pb"
+	storagev1 "mytro-backend-tile/internal/infrastructure/grpc/pb/content_storage/v1"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -16,7 +16,7 @@ import (
 type App struct {
 	Config *config.Config
 	Logger *zap.Logger
-	GRPC   *pb.ContentStorageClient
+	GRPC   *storagev1.ContentStorageServiceClient
 	DB     *gorm.DB
 
 	TxManager    repository.TxManager
@@ -33,7 +33,7 @@ type AppRepositories struct {
 	FileRepository repository.FileRepository
 }
 
-func NewApp(config *config.Config, db *gorm.DB, logger *zap.Logger, grpcClient *pb.ContentStorageClient) *App {
+func NewApp(config *config.Config, db *gorm.DB, logger *zap.Logger, grpcClient *storagev1.ContentStorageServiceClient) *App {
 	app := &App{
 		Config: config,
 		Logger: logger,
@@ -57,7 +57,7 @@ func (app *App) createRepositories() {
 }
 
 func (app *App) createServices() {
-	app.Services.TileService = service.NewTileService(app.repositories.TileRepository, app.repositories.FileRepository, app.TxManager)
+	app.Services.TileService = service.NewTileService(app.repositories.TileRepository, app.repositories.FileRepository, app.TxManager, app.Config.Upload)
 }
 
 func (app *App) GetPublicKey() (*rsa.PublicKey, error) {

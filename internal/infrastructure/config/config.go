@@ -7,6 +7,7 @@ type Config struct {
 	CORS     CORSConfig
 	GRPC     GRPCConfig
 	Keys     KeysConfig
+	Upload   UploadConfig
 }
 
 func LoadFromEnv() (*Config, error) {
@@ -23,6 +24,11 @@ func LoadFromEnv() (*Config, error) {
 		return nil, err
 	}
 	cfg.Database = *dbCfg
+
+	cfg.Upload.LoadFromEnv()
+	if err := cfg.Upload.Validate(); err != nil {
+		return nil, err
+	}
 
 	cfg.Logging.LoadFromEnv()
 	if err := cfg.Logging.Validate(); err != nil {

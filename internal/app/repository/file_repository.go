@@ -3,9 +3,9 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"mytro-backend-tile/internal/domain/models"
-	"mytro-backend-tile/internal/infrastructure/grpc/pb"
-	"time"
+	storagev1 "mytro-backend-tile/internal/infrastructure/grpc/pb/content_storage/v1"
 )
 
 type FileRepository interface {
@@ -13,32 +13,18 @@ type FileRepository interface {
 }
 
 type fileRepository struct {
-	grpcClient pb.ContentStorageClient
+	grpcClient storagev1.ContentStorageServiceClient
 }
 
-// TODO: implement file repository
-func NewFileRepository(grpcClient pb.ContentStorageClient) FileRepository {
+func NewFileRepository(grpcClient storagev1.ContentStorageServiceClient) FileRepository {
 	return &fileRepository{
 		grpcClient: grpcClient,
 	}
 }
 
 func (r *fileRepository) CreateUploadURL(ctx context.Context, data models.UploadURLData) (*models.UploadURL, error) {
-	settings := uint32(1)
-	ttl := uint32(60 * 60)
-
 	info := map[string]any{
-		"tile_id":       data.TileID.String(),
-		"preview_sizes": []int{480},
-	}
-
-	if data.IsVideo {
-		settings |= 1 << 2
-		info["media_type"] = "video"
-	} else {
-		settings |= 1 << 1
-		info["media_type"] = "image"
-		info["thumbnail_sizes"] = []int{300, 600}
+		"tile_id": data.TileID.String(),
 	}
 
 	infoJson, err := json.Marshal(info)
@@ -47,15 +33,26 @@ func (r *fileRepository) CreateUploadURL(ctx context.Context, data models.Upload
 		return nil, err
 	}
 
-	response, err := r.grpcClient.CreateUpload(ctx, &pb.CreateUploadRequest{
-		AppName:      "mytro",
-		Filename:     data.Filename,
-		ContentType:  data.ContentType,
-		MaxSize:      data.MaxSize,
-		Visibility:   pb.FileVisibility(getVisibility(data.Visibility)),
-		Settings:     &settings,
-		InfoJson:     string(infoJson),
-		UploadUrlTtl: &ttl,
+	tasks := make([]storagev1.ProcessingTask, len(data.Tasks))
+	for i, task := range data.Tasks {
+		t, err := toProtoTask(task)
+		if err != nil {
+			return nil, err
+		}
+
+		tasks[i] = t
+	}
+
+	response, err := r.grpcClient.CreateUpload(ctx, &storagev1.CreateUploadRequest{
+		AppName:              "mytro",
+		ContentType:          data.ContentType,
+		AcceptedContentTypes: data.AcceptedContentTypes,
+		MaxSize:              data.MaxSize,
+		MaxDurationSeconds:   data.MaxDuration,
+		Tasks:                tasks,
+		ExternalTasks:        data.ExternalTasks,
+		Info:                 infoJson,
+		UploadUrlTtl:         data.TTL,
 	})
 
 	if err != nil {
@@ -63,17 +60,22 @@ func (r *fileRepository) CreateUploadURL(ctx context.Context, data models.Upload
 	}
 
 	return &models.UploadURL{
-		FileID:    response.FileId,
-		UploadURL: response.UploadUrl,
-		ExpiresAt: time.Unix(int64(response.UploadExpiresAt), 0).UTC(),
+		FileID:     response.FileId,
+		UploadURL:  response.UploadUrl,
+		FormFields: response.FormFields,
+		ExpiresAt:  response.ExpiresAt.AsTime(),
 	}, nil
 }
 
-func getVisibility(visibility models.TileVisibility) pb.FileVisibility {
-	switch visibility {
-	case models.TileVisibilityPublic:
-		return pb.FileVisibility_PUBLIC
+func toProtoTask(t models.ProcessingTask) (storagev1.ProcessingTask, error) {
+	switch t {
+	case models.ProcessingTaskThumbnails:
+		return storagev1.ProcessingTask_PROCESSING_TASK_THUMBNAILS, nil
+	case models.ProcessingTaskFrames:
+		return storagev1.ProcessingTask_PROCESSING_TASK_FRAMES, nil
+	case models.ProcessingTaskTranscode:
+		return storagev1.ProcessingTask_PROCESSING_TASK_TRANSCODE, nil
 	default:
-		return pb.FileVisibility_PRIVATE
+		return 0, fmt.Errorf("unknown processing task: %v", t)
 	}
 }

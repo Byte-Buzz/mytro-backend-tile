@@ -3,9 +3,13 @@ package service
 import (
 	"context"
 	"errors"
+	"mime"
 	"mytro-backend-tile/internal/app/repository"
 	"mytro-backend-tile/internal/domain/models"
+	"mytro-backend-tile/internal/infrastructure/config"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,45 +18,53 @@ var (
 	ErrUnsupportedContentType = errors.New("unsupported content type")
 
 	AvailableContentTypes = map[string]string{
-		"image/bmp":       ".bmp",
 		"image/gif":       ".gif",
 		"image/png":       ".png",
 		"image/jpeg":      ".jpg",
-		"image/tiff":      ".tif",
 		"image/webp":      ".webp",
 		"video/mp4":       ".mp4",
-		"video/x-m4v":     ".m4v",
 		"video/quicktime": ".mov",
+		"video/webm":      ".webm",
 	}
-	VideoContentTypes = []string{"video/mp4", "video/x-m4v", "video/quicktime"}
+)
+
+var (
+	videoContentTypes = typesWithPrefix("video/")
+	imageContentTypes = typesWithPrefix("image/")
 )
 
 type TileService struct {
 	tileRepository repository.TileRepository
 	fileRepository repository.FileRepository
 	txManager      repository.TxManager
+	upload         config.UploadConfig
 }
 
-func NewTileService(tileRepository repository.TileRepository, fileRepository repository.FileRepository, txManager repository.TxManager) TileService {
+func NewTileService(tileRepository repository.TileRepository, fileRepository repository.FileRepository, txManager repository.TxManager, upload config.UploadConfig) TileService {
 	return TileService{
 		tileRepository: tileRepository,
 		fileRepository: fileRepository,
 		txManager:      txManager,
+		upload:         upload,
 	}
 }
 
 func (s TileService) CreateUpload(ctx context.Context, upload models.CreateUpload) (*models.CreatedUpload, error) {
 	id := uuid.New()
 
-	extension, exists := AvailableContentTypes[upload.FileType]
+	mediaType, _, err := mime.ParseMediaType(upload.FileType)
+	if err != nil {
+		return nil, ErrUnsupportedContentType
+	}
+
+	_, exists := AvailableContentTypes[mediaType]
 	if !exists {
 		return nil, ErrUnsupportedContentType
 	}
 
-	filename := id.String() + extension
-	isVideo := slices.Contains(VideoContentTypes, upload.FileType)
+	isVideo := slices.Contains(videoContentTypes, mediaType)
 
-	err := s.tileRepository.Create(ctx, &models.Tile{
+	err = s.tileRepository.Create(ctx, &models.Tile{
 		ID:         id,
 		OwnerID:    upload.OwnerID,
 		Type:       getFileType(isVideo),
@@ -63,23 +75,40 @@ func (s TileService) CreateUpload(ctx context.Context, upload models.CreateUploa
 		return nil, err
 	}
 
+	maxSize, acceptedTypes := s.upload.MaxImageSize, imageContentTypes
+	var maxDuration *uint32
+	if isVideo {
+		maxSize, acceptedTypes = s.upload.MaxVideoSize, videoContentTypes
+		maxDuration = &s.upload.MaxVideoDuration
+	}
+
 	url, err := s.fileRepository.CreateUploadURL(ctx, models.UploadURLData{
-		TileID:      id,
-		Filename:    filename,
-		MaxSize:     getMaxFile(isVideo),
-		IsVideo:     isVideo,
-		ContentType: upload.FileType,
-		Visibility:  models.TileVisibilityPrivate,
+		TileID:               id,
+		MaxSize:              maxSize,
+		MaxDuration:          maxDuration,
+		ContentType:          mediaType,
+		AcceptedContentTypes: acceptedTypes,
+		Tasks:                getTasks(isVideo),
+		ExternalTasks:        []string{"mytro.nsfw", "mytro.embedding"},
+		TTL:                  &s.upload.URLTTL,
 	})
 	if err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		delErr := s.tileRepository.DeleteDraft(cleanupCtx, id)
+		if delErr != nil {
+			return nil, errors.Join(err, delErr)
+		}
+
 		return nil, err
 	}
 
 	createdURL := models.CreatedUpload{
-		TileID:    id,
-		FileID:    url.FileID,
-		UploadURL: url.UploadURL,
-		ExpiresAt: url.ExpiresAt,
+		TileID:     id,
+		FileID:     url.FileID,
+		UploadURL:  url.UploadURL,
+		FormFields: url.FormFields,
+		ExpiresAt:  url.ExpiresAt,
 	}
 
 	return &createdURL, err
@@ -108,10 +137,28 @@ func getFileType(isVideo bool) models.TileType {
 	}
 }
 
-func getMaxFile(isVideo bool) uint32 {
+func getTasks(isVideo bool) []models.ProcessingTask {
 	if isVideo {
-		return 200 * 1024 * 1024
+		return []models.ProcessingTask{
+			models.ProcessingTaskThumbnails,
+			models.ProcessingTaskTranscode,
+			models.ProcessingTaskFrames,
+		}
 	} else {
-		return 20 * 1024 * 1024
+		return []models.ProcessingTask{
+			models.ProcessingTaskThumbnails,
+		}
 	}
+}
+
+func typesWithPrefix(prefix string) []string {
+	types := []string{}
+
+	for t := range AvailableContentTypes {
+		if strings.HasPrefix(t, prefix) {
+			types = append(types, t)
+		}
+	}
+
+	return types
 }

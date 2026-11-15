@@ -45,9 +45,10 @@ func CreateUploadHandler(app *app.App) gin.HandlerFunc {
 		}
 
 		body := response.CreateUploadResponse{
-			TileID:    url.TileID.String(),
-			UploadURL: url.UploadURL,
-			ExpiresAt: url.ExpiresAt,
+			TileID:     url.TileID.String(),
+			UploadURL:  url.UploadURL,
+			FormFields: url.FormFields,
+			ExpiresAt:  url.ExpiresAt,
 		}
 
 		c.JSON(http.StatusCreated, gin.H{"status": "ok", "data": body})
